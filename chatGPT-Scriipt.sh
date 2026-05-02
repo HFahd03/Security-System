@@ -1,131 +1,67 @@
 #!/bin/bash
 
-# ===============================
-# Security Audit & Hardening Script
-# Works on Ubuntu & CentOS/RHEL
-# Author: Fahd (customizable)
-# ===============================
+# ==========================================
+# UFW Firewall Hardening Script
+# Author: Your Name
+# Purpose: Configure basic firewall security using UFW
+# ==========================================
 
-# ---------- ROOT CHECK ----------
-if [[ $EUID -ne 0 ]]; then
-    echo "❌ Please run as root or with sudo"
-    exit 1
+# ---- Check if script is run with sudo/root ----
+# $EUID stores the effective user ID
+# Root user has ID = 0
+if [ "$EUID" -ne 0 ]; then
+    echo "❌ This script must be run as root (use sudo)."
+    exit 1   # stop execution if not root
 fi
 
-echo "✅ Running as root..."
+echo "✅ Running with root privileges..."
 
-# ---------- OS DETECTION ----------
-if [ -f /etc/debian_version ]; then
-    OS="debian"
-    PKG_UPDATE="apt update -y"
-    PKG_INSTALL="apt install -y"
-elif [ -f /etc/redhat-release ]; then
-    OS="rhel"
-    PKG_UPDATE="yum update -y"
-    PKG_INSTALL="yum install -y"
-else
-    echo "❌ Unsupported OS"
-    exit 1
-fi
+# ---- Define variables ----
+# This variable stores the allowed IP range for SSH access
+SSH_ALLOWED_RANGE="192.168.1.0/24"
 
-echo "📦 Detected OS: $OS"
+# ---- Reset UFW ----
+# This removes all existing rules and starts fresh
+echo "🔄 Resetting UFW to default settings..."
+ufw --force reset
 
-# ---------- UPDATE SYSTEM ----------
-echo "🔄 Updating system..."
-$PKG_UPDATE
+# ---- Set default policies ----
+# Deny all incoming traffic (secure default)
+echo "🔒 Setting default policies..."
+ufw default deny incoming
 
-# ---------- INSTALL SECURITY TOOLS ----------
-echo "🔐 Installing security tools..."
+# Allow all outgoing traffic (normal system behavior)
+ufw default allow outgoing
 
-if [ "$OS" = "debian" ]; then
-    $PKG_INSTALL ufw fail2ban curl
-elif [ "$OS" = "rhel" ]; then
-    $PKG_INSTALL firewalld fail2ban curl
-    systemctl enable firewalld
-    systemctl start firewalld
-fi
+# ---- Allow SSH from specific IP range ----
+# Only devices in this network can connect via SSH (port 22)
+echo "🔑 Allowing SSH only from $SSH_ALLOWED_RANGE ..."
+ufw allow from $SSH_ALLOWED_RANGE to any port 22 proto tcp
 
-# ---------- FIREWALL CONFIG ----------
-echo "🔥 Configuring firewall..."
+# ---- Allow HTTP ----
+# Allow web traffic on port 80 (unencrypted web)
+echo "🌐 Allowing HTTP traffic..."
+ufw allow 80/tcp
 
-if [ "$OS" = "debian" ]; then
-    ufw default deny incoming
-    ufw default allow outgoing
-    ufw allow ssh
-    ufw allow http
-    ufw allow https
-    ufw logging on
-    ufw --force enable
+# ---- Allow HTTPS ----
+# Allow secure web traffic on port 443 (encrypted web)
+echo "🔐 Allowing HTTPS traffic..."
+ufw allow 443/tcp
 
-elif [ "$OS" = "rhel" ]; then
-    firewall-cmd --permanent --set-default-zone=public
-    firewall-cmd --permanent --add-service=ssh
-    firewall-cmd --permanent --add-service=http
-    firewall-cmd --permanent --add-service=https
-    firewall-cmd --reload
-fi
+# ---- Enable logging ----
+# Logging helps monitor firewall activity and detect attacks
+echo "📜 Enabling UFW logging..."
+ufw logging on
 
-echo "✅ Firewall configured"
+# ---- Enable the firewall ----
+# This activates UFW with all defined rules
+echo "🚀 Enabling UFW firewall..."
+ufw --force enable
 
-# ---------- FAIL2BAN ----------
-echo "🛡️ Setting up Fail2ban..."
+# ---- Show firewall status ----
+# Displays active rules and configuration
+echo "📊 Firewall status:"
+ufw status verbose
 
-systemctl enable fail2ban
-systemctl start fail2ban
-
-# ---------- SSH HARDENING ----------
-echo "🔑 Hardening SSH..."
-
-SSHD_CONFIG="/etc/ssh/sshd_config"
-
-cp $SSHD_CONFIG ${SSHD_CONFIG}.backup
-
-sed -i 's/^#PermitRootLogin.*/PermitRootLogin no/' $SSHD_CONFIG
-sed -i 's/^#PasswordAuthentication.*/PasswordAuthentication yes/' $SSHD_CONFIG
-sed -i 's/^#MaxAuthTries.*/MaxAuthTries 3/' $SSHD_CONFIG
-sed -i 's/^#X11Forwarding.*/X11Forwarding no/' $SSHD_CONFIG
-
-systemctl restart sshd
-
-echo "✅ SSH hardened"
-
-# ---------- CHECK OPEN PORTS ----------
-echo "🔍 Checking open ports..."
-ss -tuln
-
-# ---------- CHECK RUNNING SERVICES ----------
-echo "📊 Running services..."
-systemctl list-units --type=service --state=running
-
-# ---------- AUDIT USERS ----------
-echo "👤 Users with shell access:"
-awk -F: '$7 ~ /(bash|sh)$/ {print $1}' /etc/passwd
-
-# ---------- CHECK SUDO USERS ----------
-echo "🔐 Sudo users:"
-getent group sudo || getent group wheel
-
-# ---------- REPORT ----------
-REPORT="/var/log/security_audit.log"
-
-echo "📝 Generating report..."
-
-{
-echo "==== SECURITY AUDIT REPORT ===="
-date
-echo ""
-echo "OS: $OS"
-echo ""
-echo "Open Ports:"
-ss -tuln
-echo ""
-echo "Running Services:"
-systemctl list-units --type=service --state=running
-echo ""
-echo "Users:"
-awk -F: '$7 ~ /(bash|sh)$/ {print $1}' /etc/passwd
-} > $REPORT
-
-echo "✅ Report saved at $REPORT"
-
-echo "🎉 Hardening & audit completed successfully!"
+# ---- End message ----
+echo "✅ Firewall hardening completed successfully."
